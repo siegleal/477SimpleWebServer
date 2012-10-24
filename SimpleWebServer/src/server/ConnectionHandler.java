@@ -94,6 +94,7 @@ public class ConnectionHandler implements Runnable {
 		HttpResponse response = null;
 		try {
 			request = HttpRequest.read(inStream);
+			
 //			System.out.println(request);
 		}
 		catch(ProtocolException pe) {

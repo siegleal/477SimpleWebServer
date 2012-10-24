@@ -26,8 +26,13 @@ import gui.WebServer;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+
+import javax.swing.DefaultListModel;
 
 /**
  * This represents a welcoming server for the incoming TCP request from a HTTP
@@ -48,6 +53,70 @@ public class Server implements Runnable {
 
 	private static final int NTHREDS = 10;
 
+	private static final int CONNECTION_SAMPLE_SIZE = 5;
+	private static final long CONNECTION_TIME_THRESHOLD = 100;
+	private List<ServerConnection> latestConnections;
+	private DefaultListModel<InetAddress> blackList;
+	private DefaultListModel<InetAddress> whiteList;
+
+	private class ServerConnection {
+		Date connTime;
+		InetAddress address;
+		long timeSinceLastConnection;
+		int connNumber;
+
+		public int getConnNumber() {
+			return connNumber;
+		}
+
+		public long getTimeSinceLastConnection() {
+			return timeSinceLastConnection;
+		}
+
+		public void setTimeSinceLastConnection(long timeSinceLastConnection) {
+			this.timeSinceLastConnection = timeSinceLastConnection;
+		}
+
+		public Date getConnTime() {
+			return connTime;
+		}
+
+		public InetAddress getAddress() {
+			return address;
+		}
+
+		public void incrementConnNumber() {
+			this.connNumber++;
+		}
+
+		public ServerConnection(Date time, InetAddress addr) {
+			address = addr;
+			connTime = time;
+			connNumber = 1;
+			timeSinceLastConnection = -1;
+		}
+
+		/**
+		 * @param other
+		 * @return the time between the connections if the addresses is the
+		 *         same, if not then returns -1
+		 */
+		public long isSameAddress(ServerConnection other) {
+			if (address.equals(other.address)) {
+				return other.connTime.getTime() - connTime.getTime();
+			}
+			return -1;
+		}
+	}
+
+	public void setWhitelist(DefaultListModel<InetAddress> wl) {
+		whiteList = wl;
+	}
+
+	public void setBlacklist(DefaultListModel<InetAddress> wl) {
+		blackList = wl;
+	}
+
 	/**
 	 * @param rootDirectory
 	 * @param port
@@ -59,6 +128,10 @@ public class Server implements Runnable {
 		this.connections = 0;
 		this.serviceTime = 0;
 		this.window = window;
+
+		this.latestConnections = new ArrayList<ServerConnection>();
+		blackList = new DefaultListModel<InetAddress>();
+		whiteList = new DefaultListModel<InetAddress>();
 	}
 
 	/**
@@ -133,11 +206,17 @@ public class Server implements Runnable {
 				if (this.stop)
 					break;
 
-				// Create a handler for this incoming connection and start the
-				// handler in a new thread
-				ConnectionHandler handler = new ConnectionHandler(this,
-						connectionSocket);
-				executor.execute(new Thread(handler));
+				InetAddress address = connectionSocket.getInetAddress();
+				if (whiteList.contains(address)
+						|| (!blackList.contains(address) && allowConnection(new ServerConnection(
+								new Date(), address)))) {
+
+					// Create a handler for this incoming connection and start
+					// the handler in a new thread
+					ConnectionHandler handler = new ConnectionHandler(this,
+							connectionSocket);
+					executor.execute(new Thread(handler));
+				}
 			}
 			this.welcomeSocket.close();
 		} catch (Exception e) {
@@ -167,13 +246,72 @@ public class Server implements Runnable {
 	}
 
 	/**
-	 * Checks if the server is stopeed or not.
+	 * Checks if the server is stopped or not.
 	 * 
 	 * @return
 	 */
 	public boolean isStoped() {
 		if (this.welcomeSocket != null)
 			return this.welcomeSocket.isClosed();
+		return true;
+	}
+
+	public void whitelistAddress(InetAddress addr) {
+		whiteList.addElement(addr);
+		blackList.removeElement(addr);
+	}
+
+	public void blacklistAddress(InetAddress addr) {
+		blackList.addElement(addr);
+		whiteList.removeElement(addr);
+	}
+
+	private boolean allowConnection(ServerConnection c) {
+		long timeSum = 0;
+		int numConnections = 1;
+		int indexToRemove = -1;
+
+		for (int i = 0; i < latestConnections.size(); i++) {
+			ServerConnection conn = latestConnections.get(i);
+			long result = conn.isSameAddress(c);
+			if (result != -1) {
+				// keep the sample size the same
+				conn.incrementConnNumber();
+				if (conn.getConnNumber() > Server.CONNECTION_SAMPLE_SIZE) {
+					// flag this item for removal
+					indexToRemove = i;
+					continue;
+				} else if (conn.getConnNumber() == 2) { // latest connection
+					c.timeSinceLastConnection = result;
+					timeSum += result;
+				}
+
+				// make sure we dont add the first connction in the average
+				if (conn.getTimeSinceLastConnection() != -1) {
+					timeSum += conn.timeSinceLastConnection;
+					numConnections++;
+				}
+			}
+		}
+
+		if (indexToRemove != -1)
+			latestConnections.remove(indexToRemove);
+
+		latestConnections.add(c);
+
+		// calculate average time between connection
+		long avg = timeSum / (long) numConnections;
+
+		System.out.println("Average time between connections: " + avg
+				+ " milliseconds");
+
+		if (numConnections != 1 && avg <= CONNECTION_TIME_THRESHOLD) {
+			// limit connections from this ip
+			blacklistAddress(c.address);
+			System.out.println("Address " + c.address.getHostAddress()
+					+ " has been blacklisted");
+			return false;
+		}
 		return true;
 	}
 }

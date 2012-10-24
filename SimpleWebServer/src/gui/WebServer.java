@@ -27,8 +27,21 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.beans.Transient;
+import java.net.InetAddress;
 
-import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JTextField;
+import javax.swing.SpringLayout;
+import javax.swing.WindowConstants;
 
 import server.Server;
 
@@ -53,6 +66,14 @@ public class WebServer extends JFrame {
 	private JButton butStopServer;
 	private JLabel lblServiceRate;
 	private JTextField txtServiceRate;
+	
+	private JList<InetAddress> whiteListView;
+	private JList<InetAddress> blackListView;
+	private JButton butWhitelist;
+	private JButton butBlacklist;
+	
+	private DefaultListModel<InetAddress> whitelist;
+	private DefaultListModel<InetAddress> blacklist;
 	
 	private Server server;
 	private ServiceRateUpdater rateUpdater;
@@ -137,9 +158,62 @@ public class WebServer extends JFrame {
 		// Compact the grid
 		SpringUtilities.makeCompactGrid(this.panelRunServer, 2, 2, 5, 5, 5, 5);
 		
+		whitelist = new DefaultListModel<InetAddress>();
+		blacklist = new DefaultListModel<InetAddress>();
+		butWhitelist = new JButton("<< Whitelist selected IP");
+		butWhitelist.addActionListener(new ActionListener(){
+			
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				WebServer.this.server.whitelistAddress(WebServer.this.blackListView.getSelectedValue());
+				
+			}
+		});
+		butBlacklist = new JButton("Blacklist selected IP >>");
+		butBlacklist.addActionListener(new ActionListener(){
+			
+			@Override
+			public void actionPerformed(ActionEvent arg0) {
+				WebServer.this.server.whitelistAddress(WebServer.this.blackListView.getSelectedValue());
+				
+			}
+		});
+		
+		//white and black list
+		JPanel wbPanel = new JPanel();
+		JLabel lblWhite = new JLabel("Whitelisted IPs");
+		JLabel lblBlack = new JLabel("Blacklisted IPs");
+		whiteListView = new JList<InetAddress>(whitelist){
+			@Override
+			@Transient
+			public Dimension getPreferredSize() {
+				return new Dimension(250,100);
+			}
+		};
+		blackListView = new JList<InetAddress>(blacklist){
+			@Override
+			@Transient
+			public Dimension getPreferredSize() {
+				return new Dimension(250,100);
+			}
+		};
+		blackListView.setMinimumSize(new Dimension(100, 100));
+		wbPanel.setBorder(BorderFactory.createTitledBorder("IP Restrictions"));
+		wbPanel.setLayout(new SpringLayout());
+		wbPanel.add(lblWhite);
+		wbPanel.add(lblBlack);
+		wbPanel.add(whiteListView);
+		wbPanel.add(blackListView);
+		wbPanel.add(butBlacklist);
+		wbPanel.add(butWhitelist);
+		
+		SpringUtilities.makeCompactGrid(wbPanel, 3, 2, 5, 5, 5, 5);
+		
+		
 		JPanel contentPane = (JPanel)this.getContentPane();
-		contentPane.add(this.panelInput, BorderLayout.CENTER);
-		contentPane.add(this.panelRunServer, BorderLayout.SOUTH);
+		contentPane.add(this.panelInput, BorderLayout.NORTH);
+		contentPane.add(this.panelRunServer, BorderLayout.CENTER);
+		contentPane.add(wbPanel, BorderLayout.SOUTH);
 		
 		pack();
 	}
@@ -186,6 +260,8 @@ public class WebServer extends JFrame {
 				
 				// Now run the server in non-gui thread
 				server = new Server(rootDirectory, port, WebServer.this);
+				server.setWhitelist(whitelist);
+				server.setBlacklist(blacklist);
 				rateUpdater = new ServiceRateUpdater();
 				
 				// Disable widgets
