@@ -27,11 +27,13 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+import javax.print.attribute.standard.Severity;
 import javax.swing.DefaultListModel;
 
 /**
@@ -53,8 +55,8 @@ public class Server implements Runnable {
 
 	private static final int NTHREDS = 10;
 
-	private static final int CONNECTION_SAMPLE_SIZE = 5;
-	private static final long CONNECTION_TIME_THRESHOLD = 100;
+	private int sampleSize = 5;
+	private long timeThreshold = 100;
 	private List<ServerConnection> latestConnections;
 	private DefaultListModel<InetAddress> blackList;
 	private DefaultListModel<InetAddress> whiteList;
@@ -107,6 +109,22 @@ public class Server implements Runnable {
 			}
 			return -1;
 		}
+	}
+
+	public int getSampleSize() {
+		return sampleSize;
+	}
+
+	public void setSampleSize(int sampleSize) {
+		this.sampleSize = sampleSize;
+	}
+
+	public long getTimeThreshold() {
+		return timeThreshold;
+	}
+
+	public void setTimeThreshold(long timeThreshold) {
+		this.timeThreshold = timeThreshold;
 	}
 
 	public void setWhitelist(DefaultListModel<InetAddress> wl) {
@@ -259,11 +277,23 @@ public class Server implements Runnable {
 	public void whitelistAddress(InetAddress addr) {
 		whiteList.addElement(addr);
 		blackList.removeElement(addr);
+		System.out.println("Address " + addr.getHostAddress()
+				+ " has been whitelisted");
 	}
 
 	public void blacklistAddress(InetAddress addr) {
 		blackList.addElement(addr);
 		whiteList.removeElement(addr);
+		System.out.println("Address " + addr.getHostAddress()
+				+ " has been blacklisted");
+	}
+
+	public void unBlacklistAddress(InetAddress addr) {
+		blackList.removeElement(addr);
+	}
+
+	public void unWhitelistAddress(InetAddress addr) {
+		blackList.removeElement(addr);
 	}
 
 	private boolean allowConnection(ServerConnection c) {
@@ -277,7 +307,7 @@ public class Server implements Runnable {
 			if (result != -1) {
 				// keep the sample size the same
 				conn.incrementConnNumber();
-				if (conn.getConnNumber() > Server.CONNECTION_SAMPLE_SIZE) {
+				if (conn.getConnNumber() > sampleSize) {
 					// flag this item for removal
 					indexToRemove = i;
 					continue;
@@ -305,11 +335,11 @@ public class Server implements Runnable {
 		System.out.println("Average time between connections: " + avg
 				+ " milliseconds");
 
-		if (numConnections != 1 && avg <= CONNECTION_TIME_THRESHOLD) {
+		/* possibly add a minimum number of connections to get a good sample */
+		if (numConnections != 1 && avg <= timeThreshold) {
 			// limit connections from this ip
 			blacklistAddress(c.address);
-			System.out.println("Address " + c.address.getHostAddress()
-					+ " has been blacklisted");
+
 			return false;
 		}
 		return true;
