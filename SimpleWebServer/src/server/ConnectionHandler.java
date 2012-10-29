@@ -177,7 +177,11 @@ public class ConnectionHandler implements Runnable {
 				if (date != null) {
 					DateFormat df = new SimpleDateFormat(
 							"EEE MMM dd yyyy kk:mm:ss z");
+					try {
 					dateResult = df.parse(date);
+					}catch (java.text.ParseException e){
+						dateResult = new Date();
+					}
 				}
 
 				// authenticate user
