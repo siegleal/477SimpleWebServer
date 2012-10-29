@@ -161,6 +161,19 @@ public class HttpResponseFactory {
 		return response;
 	}
 
+	public static HttpResponse create401Unauthorized(String connection) {
+		HttpResponse response = new HttpResponse(Protocol.VERSION, 401,
+				"Unauthorized", new HashMap<String, String>(),null);
+
+		fillGeneralHeader(response, connection);
+
+		response.put("WWW-Authenticate", "Digest realm=\"SimpleWebServer\", "
+				+ "qop=\"auth,auth-int\", " + "nonce=\"2987123894b\"");
+
+		return response;
+
+	}
+
 	/**
 	 * Creates a {@link HttpResponse} object for sending file not modified
 	 * response.

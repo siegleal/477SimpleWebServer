@@ -58,6 +58,10 @@ public class Protocol {
     
 	public static final int NOT_MODIFIED_CODE = 304;
 	public static final String NOT_MODIFIED_TEXT = "Not Modified";
+	
+	public static final int UNAUTHORIZED_CODE = 401;
+	public static final String UNAUTHORIZED_TEXT = "Unauthorized";
+	public static final String UNAUTHORIZED_HTML = "<html><body><h1>401 You can't do that!</h1></body></html>";
 
     // Some useful header elements in request
     public static final String HOST = "Host";

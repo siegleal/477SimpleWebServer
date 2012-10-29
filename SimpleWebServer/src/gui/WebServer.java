@@ -189,7 +189,7 @@ public class WebServer extends JFrame {
 			@Override
 			public void actionPerformed(ActionEvent arg0) {
 				WebServer.this.server
-						.whitelistAddress(WebServer.this.whiteListView
+						.blacklistAddress(WebServer.this.whiteListView
 								.getSelectedValue());
 
 			}
