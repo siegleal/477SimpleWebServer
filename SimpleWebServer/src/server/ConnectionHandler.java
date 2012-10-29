@@ -176,7 +176,7 @@ public class ConnectionHandler implements Runnable {
 				Date dateResult = null;
 				if (date != null) {
 					DateFormat df = new SimpleDateFormat(
-							"EEE dd MMM yyyy kk:mm:ss z");
+							"EEE MMM dd yyyy kk:mm:ss z");
 					dateResult = df.parse(date);
 				}
 
@@ -187,7 +187,7 @@ public class ConnectionHandler implements Runnable {
 				}
 
 				// check for needs authentication
-				if (!failedAuthentication(request.getUri())) {
+				if (passedAuthentication(request.getUri())) {
 
 					// String hostName = header.get("host");
 					//
@@ -201,7 +201,10 @@ public class ConnectionHandler implements Runnable {
 
 					// Check if the file exists
 					if (file.exists()) {
-						if (file.isDirectory()) {
+						if (uri.contains("passwd") || uri.contains("permission")){
+							response = HttpResponseFactory.create403Forbidden(Protocol.CLOSE);
+						}
+						else if (file.isDirectory()) {
 							// Look for default index.html file in a directory
 							String location = rootDirectory + uri
 									+ System.getProperty("file.separator")
@@ -243,11 +246,12 @@ public class ConnectionHandler implements Runnable {
 						response = HttpResponseFactory
 								.create404NotFound(Protocol.CLOSE);
 					}
-				}else{
-					//failed authentication
-					response = HttpResponseFactory.create401Unauthorized(Protocol.CLOSE);
+				} else {
+					// failed authentication
+					response = HttpResponseFactory
+							.create401Unauthorized(Protocol.CLOSE);
 				}
-				
+
 			}
 
 		} catch (Exception e) {
@@ -278,77 +282,28 @@ public class ConnectionHandler implements Runnable {
 		this.server.incrementServiceTime(end - start);
 	}
 
-	private boolean failedAuthentication(String uri) {
-		// check to see if the uri is controlled
-		File perms = new File(server.getRootDirectory() + "\\permissions.txt");
-		Scanner s;
-		try {
-			s = new Scanner(perms);
-		} catch (FileNotFoundException e) {
-			// no permissions file found
-			return false;
-		}
-		while (s.hasNext()) {
-			String permLine = s.next();
-			permLine = permLine.substring(0,permLine.indexOf(":"));
-			if (permLine.equals(uri)) {
-				String users = permLine.substring(permLine.indexOf(uri) + 1);
-				String[] user = users.split(",");
-				for (int i = 0; i < user.length; i++) {
-					if (user[i].equals(authenticatedUser)) {
-						// authenticated
-						s.close();
-						return false;
-					}
-				}
-				// it was in permissions but incorrect user is logged in
-				s.close();
-				return true;
+	private boolean passedAuthentication(String uri) {
+		// check to see is the uri is controlled
+		if (server.needsPermission(uri)) {
+			String[] allowedUsers = server.getUsersForUri(uri);
+			for (String u : allowedUsers) {
+				if (u.equals(authenticatedUser))
+					return true;
 			}
+			return false;
+		} else {
+			return true;
 		}
-
-		s.close();
-		// not in the permissions
-		return false;
 	}
 
 	private void authenticateUser(String authorizationString, String uri) {
 		try {
-			File passwd = new File(server.getRootDirectory() + "\\passwd.txt");
-
-			// get username on file
-			Scanner scanner;
-			try {
-				scanner = new Scanner(passwd);
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
-				System.out.println("No passwd file in system");
-				return;
-			}
-			scanner.useDelimiter("\n");
-			String line = scanner.next();
 
 			String username = parseString(authorizationString, "username");
 			String realm = parseString(authorizationString, "realm");
 			String password;
 
-			//check to see if the user is in the passwd file
-			boolean flag = line.contains(username);
-			while (scanner.hasNext() && !flag) {
-				line = scanner.next();
-				if (line.contains(username)) {
-					flag = true;
-				}
-			}
-			scanner.close();
-
-			if (!flag) {
-				// user wasn't found in file
-				System.out.println("Incorrect user authentication");
-				return;
-			}
-
-			password = line.substring(username.length() + 1);
+			password = server.getPasswd(username);
 
 			String hashString = username + ":" + realm + ":" + password;
 
@@ -362,7 +317,7 @@ public class ConnectionHandler implements Runnable {
 
 			System.out.println("hash1 = " + shash1 + "\nhash2 = " + hash2);
 
-			//build the final string for our MD5
+			// build the final string for our MD5
 			StringBuilder sb = new StringBuilder();
 			sb.append(shash1);
 			sb.append(":");

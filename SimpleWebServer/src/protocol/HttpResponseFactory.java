@@ -163,7 +163,7 @@ public class HttpResponseFactory {
 
 	public static HttpResponse create401Unauthorized(String connection) {
 		HttpResponse response = new HttpResponse(Protocol.VERSION, 401,
-				"Unauthorized", new HashMap<String, String>(),null);
+				"Unauthorized", new HashMap<String, String>(),new File("401.html"));
 
 		fillGeneralHeader(response, connection);
 
@@ -187,6 +187,16 @@ public class HttpResponseFactory {
 		HttpResponse response = new HttpResponse(Protocol.VERSION,
 				Protocol.NOT_MODIFIED_CODE, Protocol.NOT_MODIFIED_TEXT,
 				new HashMap<String, String>(), null);
+
+		fillGeneralHeader(response, connection);
+
+		return response;
+	}
+
+	public static HttpResponse create403Forbidden(String connection) {
+		HttpResponse response = new HttpResponse(Protocol.VERSION,
+				Protocol.FORBIDDEN_CODE, Protocol.FORBIDDEN_TEXT,
+				new HashMap<String, String>(), new File("403.html"));
 
 		fillGeneralHeader(response, connection);
 

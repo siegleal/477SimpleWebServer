@@ -23,6 +23,8 @@ package server;
 
 import gui.WebServer;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -34,8 +36,11 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
@@ -66,7 +71,10 @@ public class Server implements Runnable {
 	private List<ServerConnection> latestConnections;
 	private DefaultListModel<InetAddress> blackList;
 	private DefaultListModel<InetAddress> whiteList;
-	
+
+	private Map<String, String> passwd;
+	private Map<String, String[]> permissions;
+
 	private Selector selector;
 
 	private class ServerConnection {
@@ -158,6 +166,97 @@ public class Server implements Runnable {
 		this.latestConnections = new ArrayList<ServerConnection>();
 		blackList = new DefaultListModel<InetAddress>();
 		whiteList = new DefaultListModel<InetAddress>();
+
+		// read the users
+		passwd = new HashMap<String, String>();
+		File usersFile = new File("passwd.txt");
+		if (usersFile.exists()) {
+			Scanner s;
+			try {
+				s = new Scanner(usersFile);
+				s.useDelimiter("\n");
+
+				while (s.hasNext()) {
+					String line = s.next();
+					String[] splitLine = line.split(" ");
+					if (!passwd.containsKey(splitLine[0])) {
+						passwd.put(splitLine[0], splitLine[1]);
+					}
+				}
+
+				s.close();
+
+			} catch (FileNotFoundException e) {
+				// shouldn't get here
+				e.printStackTrace();
+			}
+		} else {
+			System.out.println("No passwd file found");
+		}
+
+		// read the permissions
+		permissions = new HashMap<String, String[]>();
+		File permFile = new File("permissions.txt");
+		if (usersFile.exists()) {
+			Scanner s;
+			try {
+				s = new Scanner(permFile);
+
+				while (s.hasNext()) {
+					String line = s.next();
+					String[] splitLine = line.split(":");
+					if (!permissions.containsKey(splitLine[0])) {
+						String[] users = splitLine[1].split(",");
+						permissions.put(splitLine[0], users);
+					}
+				}
+
+				s.close();
+
+			} catch (FileNotFoundException e) {
+				// shouldn't get here
+				e.printStackTrace();
+			}
+		} else {
+			System.out.println("No permissions file found");
+		}
+		
+		//make sure 401 and 403 are present
+		if (!new File(rootDirectory + "/403.html").exists()){
+			File f403 = new File (rootDirectory + "/403.html");
+			try {
+				f403.createNewFile();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		
+		//make sure 401 and 403 are present
+				if (!new File(rootDirectory + "/401.html").exists()){
+					File f401 = new File (rootDirectory + "/401.html");
+					try {
+						f401.createNewFile();
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+
+	}
+	
+	public String getPasswd(String uname){
+		if (passwd.containsKey(uname))
+			return passwd.get(uname);
+		return "";
+	}
+	
+	public String[] getUsersForUri(String uri){
+		return permissions.get(uri);
+	}
+	
+	public boolean needsPermission(String uri){
+		return permissions.containsKey(uri);
 	}
 
 	/**
@@ -223,12 +322,13 @@ public class Server implements Runnable {
 			this.welcomeSocketChannel = ServerSocketChannel.open();
 			this.welcomeSocketChannel.bind(new InetSocketAddress(port));
 			this.selector = Selector.open();
-			
+
 			this.welcomeSocket = this.welcomeSocketChannel.socket();
-			this.welcomeSocket.setReuseAddress(true);//TODO what does this do
-			
+			this.welcomeSocket.setReuseAddress(true);// TODO what does this do
+
 			this.welcomeSocketChannel.configureBlocking(false);
-			this.welcomeSocketChannel.register(this.selector, SelectionKey.OP_ACCEPT);
+			this.welcomeSocketChannel.register(this.selector,
+					SelectionKey.OP_ACCEPT);
 
 			while (true) {
 				try {
@@ -236,59 +336,66 @@ public class Server implements Runnable {
 				} catch (IOException e) {
 					break;
 				}
-				
+
 				if (this.stop) {
 					break;
 				}
-				
-				Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+
+				Iterator<SelectionKey> iterator = selector.selectedKeys()
+						.iterator();
 				while (iterator.hasNext()) {
 					SelectionKey selKey = iterator.next();
 					iterator.remove();
 					if (selKey.isValid() && selKey.isAcceptable()) {
-						SocketChannel channel = ((ServerSocketChannel)selKey.channel()).accept();
+						SocketChannel channel = ((ServerSocketChannel) selKey
+								.channel()).accept();
 						if (channel != null) {
 							channel.configureBlocking(false);
-							channel.register(this.selector, SelectionKey.OP_READ);
+							channel.register(this.selector,
+									SelectionKey.OP_READ);
 						}
 					}
 					if (selKey.isValid() && selKey.isReadable()) {
-						SocketChannel channel = (SocketChannel)selKey.channel();
+						SocketChannel channel = (SocketChannel) selKey
+								.channel();
 						InetAddress address = channel.socket().getInetAddress();
 						if (whiteList.contains(address)
-						|| (!blackList.contains(address) && allowConnection(new ServerConnection(
-								new Date(), address)))) {
+								|| (!blackList.contains(address) && allowConnection(new ServerConnection(
+										new Date(), address)))) {
 							int readyOps = selKey.readyOps();
 							selKey.interestOps(selKey.interestOps() & ~readyOps);
-							ConnectionHandler handler = new ConnectionHandler(this, selKey);
+							ConnectionHandler handler = new ConnectionHandler(
+									this, selKey);
 							executor.execute(new Thread(handler));
 						}
 					}
 				}
 			}
-			
-//			// Now keep welcoming new connections until stop flag is set to true
-//			while (true) {
-//				// Listen for incoming socket connection
-//				// This method block until somebody makes a request
-//				Socket connectionSocket = this.welcomeSocket.accept();
-//
-//				// Come out of the loop if the stop flag is set
-//				if (this.stop)
-//					break;
-//
-//				InetAddress address = connectionSocket.getInetAddress();
-//				if (whiteList.contains(address)
-//						|| (!blackList.contains(address) && allowConnection(new ServerConnection(
-//								new Date(), address)))) {
-//
-//					// Create a handler for this incoming connection and start
-//					// the handler in a new thread
-//					ConnectionHandler handler = new ConnectionHandler(this,
-//							connectionSocket);
-//					executor.execute(new Thread(handler));
-//				}
-//			}
+
+			// // Now keep welcoming new connections until stop flag is set to
+			// true
+			// while (true) {
+			// // Listen for incoming socket connection
+			// // This method block until somebody makes a request
+			// Socket connectionSocket = this.welcomeSocket.accept();
+			//
+			// // Come out of the loop if the stop flag is set
+			// if (this.stop)
+			// break;
+			//
+			// InetAddress address = connectionSocket.getInetAddress();
+			// if (whiteList.contains(address)
+			// || (!blackList.contains(address) && allowConnection(new
+			// ServerConnection(
+			// new Date(), address)))) {
+			//
+			// // Create a handler for this incoming connection and start
+			// // the handler in a new thread
+			// ConnectionHandler handler = new ConnectionHandler(this,
+			// connectionSocket);
+			// executor.execute(new Thread(handler));
+			// }
+			// }
 			this.welcomeSocket.close();
 		} catch (Exception e) {
 			window.showSocketException(e);
@@ -397,4 +504,5 @@ public class Server implements Runnable {
 		}
 		return true;
 	}
+
 }

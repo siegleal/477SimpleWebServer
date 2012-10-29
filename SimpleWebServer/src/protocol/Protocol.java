@@ -50,6 +50,9 @@ public class Protocol {
     public static final int BAD_REQUEST_CODE = 400;
     public static final String BAD_REQUEST_TEXT = "Bad Request";
     
+    public static final int FORBIDDEN_CODE = 403;
+    public static final String FORBIDDEN_TEXT = "Forbidden";
+    
     public static final int NOT_FOUND_CODE = 404;
     public static final String NOT_FOUND_TEXT = "Not Found";
     
