@@ -23,17 +23,22 @@ package server;
 
 import gui.WebServer;
 
+import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
-import javax.print.attribute.standard.Severity;
 import javax.swing.DefaultListModel;
 
 /**
@@ -46,6 +51,7 @@ public class Server implements Runnable {
 	private String rootDirectory;
 	private int port;
 	private boolean stop;
+	private ServerSocketChannel welcomeSocketChannel;
 	private ServerSocket welcomeSocket;
 
 	private long connections;
@@ -60,6 +66,8 @@ public class Server implements Runnable {
 	private List<ServerConnection> latestConnections;
 	private DefaultListModel<InetAddress> blackList;
 	private DefaultListModel<InetAddress> whiteList;
+	
+	private Selector selector;
 
 	private class ServerConnection {
 		Date connTime;
@@ -212,30 +220,75 @@ public class Server implements Runnable {
 	public void run() {
 		try {
 			final Executor executor = Executors.newFixedThreadPool(NTHREDS);
-			this.welcomeSocket = new ServerSocket(port);
+			this.welcomeSocketChannel = ServerSocketChannel.open();
+			this.welcomeSocketChannel.bind(new InetSocketAddress(port));
+			this.selector = Selector.open();
+			
+			this.welcomeSocket = this.welcomeSocketChannel.socket();
+			this.welcomeSocket.setReuseAddress(true);//TODO what does this do
+			
+			this.welcomeSocketChannel.configureBlocking(false);
+			this.welcomeSocketChannel.register(this.selector, SelectionKey.OP_ACCEPT);
 
-			// Now keep welcoming new connections until stop flag is set to true
 			while (true) {
-				// Listen for incoming socket connection
-				// This method block until somebody makes a request
-				Socket connectionSocket = this.welcomeSocket.accept();
-
-				// Come out of the loop if the stop flag is set
-				if (this.stop)
+				try {
+					selector.select();
+				} catch (IOException e) {
 					break;
-
-				InetAddress address = connectionSocket.getInetAddress();
-				if (whiteList.contains(address)
+				}
+				
+				if (this.stop) {
+					break;
+				}
+				
+				Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+				while (iterator.hasNext()) {
+					SelectionKey selKey = iterator.next();
+					iterator.remove();
+					if (selKey.isValid() && selKey.isAcceptable()) {
+						SocketChannel channel = ((ServerSocketChannel)selKey.channel()).accept();
+						if (channel != null) {
+							channel.configureBlocking(false);
+							channel.register(this.selector, SelectionKey.OP_READ);
+						}
+					}
+					if (selKey.isValid() && selKey.isReadable()) {
+						SocketChannel channel = (SocketChannel)selKey.channel();
+						InetAddress address = channel.socket().getInetAddress();
+						if (whiteList.contains(address)
 						|| (!blackList.contains(address) && allowConnection(new ServerConnection(
 								new Date(), address)))) {
-
-					// Create a handler for this incoming connection and start
-					// the handler in a new thread
-					ConnectionHandler handler = new ConnectionHandler(this,
-							connectionSocket);
-					executor.execute(new Thread(handler));
+							int readyOps = selKey.readyOps();
+							selKey.interestOps(selKey.interestOps() & ~readyOps);
+							ConnectionHandler handler = new ConnectionHandler(this, selKey);
+							executor.execute(new Thread(handler));
+						}
+					}
 				}
 			}
+			
+//			// Now keep welcoming new connections until stop flag is set to true
+//			while (true) {
+//				// Listen for incoming socket connection
+//				// This method block until somebody makes a request
+//				Socket connectionSocket = this.welcomeSocket.accept();
+//
+//				// Come out of the loop if the stop flag is set
+//				if (this.stop)
+//					break;
+//
+//				InetAddress address = connectionSocket.getInetAddress();
+//				if (whiteList.contains(address)
+//						|| (!blackList.contains(address) && allowConnection(new ServerConnection(
+//								new Date(), address)))) {
+//
+//					// Create a handler for this incoming connection and start
+//					// the handler in a new thread
+//					ConnectionHandler handler = new ConnectionHandler(this,
+//							connectionSocket);
+//					executor.execute(new Thread(handler));
+//				}
+//			}
 			this.welcomeSocket.close();
 		} catch (Exception e) {
 			window.showSocketException(e);
@@ -268,7 +321,7 @@ public class Server implements Runnable {
 	 * 
 	 * @return
 	 */
-	public boolean isStoped() {
+	public boolean isStopped() {
 		if (this.welcomeSocket != null)
 			return this.welcomeSocket.isClosed();
 		return true;

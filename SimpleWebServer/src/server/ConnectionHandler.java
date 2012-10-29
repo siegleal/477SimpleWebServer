@@ -25,7 +25,8 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.util.Map;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.SocketChannel;
 
 import protocol.HttpRequest;
 import protocol.HttpResponse;
@@ -43,17 +44,19 @@ import protocol.ProtocolException;
  */
 public class ConnectionHandler implements Runnable {
 	private Server server;
-	private Socket socket;
+	private SelectionKey selKey;
+	private SocketChannel socket;
 	
-	public ConnectionHandler(Server server, Socket socket) {
+	public ConnectionHandler(Server server, SelectionKey selKey) {
 		this.server = server;
-		this.socket = socket;
+		this.selKey = selKey;
+		this.socket = (SocketChannel)selKey.channel();
 	}
 	
 	/**
 	 * @return the socket
 	 */
-	public Socket getSocket() {
+	public SocketChannel getSocket() {
 		return socket;
 	}
 
@@ -72,8 +75,8 @@ public class ConnectionHandler implements Runnable {
 		OutputStream outStream = null;
 		
 		try {
-			inStream = this.socket.getInputStream();
-			outStream = this.socket.getOutputStream();
+			inStream = new ByteBufferInputStreamAdapter(this.socket);
+			outStream = new ByteBufferOutputStreamAdapter(this.socket);
 		}
 		catch(Exception e) {
 			// Cannot do anything if we have exception reading input or output stream
@@ -85,6 +88,8 @@ public class ConnectionHandler implements Runnable {
 			// Get the end time
 			long end = System.currentTimeMillis();
 			this.server.incrementServiceTime(end-start);
+			this.selKey.interestOps(this.selKey.interestOps() | SelectionKey.OP_READ);
+			this.selKey.selector().wakeup();
 			return;
 		}
 		
@@ -94,8 +99,7 @@ public class ConnectionHandler implements Runnable {
 		HttpResponse response = null;
 		try {
 			request = HttpRequest.read(inStream);
-			
-//			System.out.println(request);
+			System.out.println(request);
 		}
 		catch(ProtocolException pe) {
 			// We have some sort of protocol exception. Get its status code and create response
@@ -112,6 +116,9 @@ public class ConnectionHandler implements Runnable {
 			// For any other error, we will create bad request response as well
 			response = HttpResponseFactory.create400BadRequest(Protocol.CLOSE);
 		}
+
+		this.selKey.interestOps(this.selKey.interestOps() | SelectionKey.OP_READ);
+		this.selKey.selector().wakeup();
 		
 		if(response != null) {
 			// Means there was an error, now write the response object to the socket
@@ -196,7 +203,7 @@ public class ConnectionHandler implements Runnable {
 			// Write response and we are all done so close the socket
 			response.write(outStream);
 //			System.out.println(response);
-			socket.close();
+//			socket.close();
 		}
 		catch(Exception e){
 			// We will ignore this exception
